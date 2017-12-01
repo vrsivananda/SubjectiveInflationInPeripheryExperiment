@@ -1,0 +1,764 @@
+<!doctype html>
+	<head>
+		<title> Simple Reaction Time task </title>
+		<script src = "https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+		<script src = "../static/jspsych-5.0.3/jspsych.js"></script>
+		<script src = "../static/jspsych-5.0.3/plugins/jspsych-text.js"></script>
+		<script src = "../static/jspsych-5.0.3/plugins/jspsych-single-stim.js"> </script>
+		<script src = "../static/jspsych-5.0.3/plugins/jspsych-html.js"> </script>
+		<script src = "../static/jspsych-5.0.3/plugins/jspsych-survey-text.js"> </script>
+
+		<script src="../static/lib/jquery-min.js" type="text/javascript"> </script>
+		<script src="../static/lib/underscore-min.js" type="text/javascript"> </script>
+		<script src="../static/lib/backbone-min.js" type="text/javascript"> </script>
+		<script src="../static/lib/d3.v3.min.js" type="text/javascript"> </script>
+
+
+		<link href = "../static/jspsych-5.0.3/css/jspsych.css" rel = "stylesheet" type = "css/text"> </link>
+
+		<!-- These variables are necessary to implement psiTurk -->
+        <script type="text/javascript">
+            // These fields provided by the psiTurk Server
+            var uniqueId = "{{ uniqueId }}"; // a unique string identifying the worker/task
+            var adServerLoc = "{{ adServerLoc }}"; // the location of your ad (so you can send user back at end of experiment)
+            var mode = "{{ mode }}"; // is this running live, sandbox, or in debug mode?
+        </script>
+
+
+        <!-- utils.js and psiturk.js provide the basic psiturk functionality -->
+        <script src="../static/js/utils.js" type="text/javascript"></script>
+		<script src="../static/js/psiturk.js" type="text/javascript"></script>
+
+	</head>
+	<body>
+		<!-- <div id="peri-left" style="width:500px; height:auto; margin:auto; background-color:red"></div>
+		<div id="peri-right" style="width:auto; height:auto; margin:auto; background-color:blue"></div>
+		<div id="fovea-center" style="width:auto; height:auto; margin:auto; background-color:green"></div> 
+		<div id='stimuli-target' style='width:auto; height:auto; margin:5% auto;'></div>
+		<div id='displayDiv' style ='width:auto; height:auto;'> <p> Please wait while the page loads. This may take up to a minute. </p> </div>-->
+		
+		<canvas class="canvas" id="cueCanvas" style="margin:auto; display:block"> </canvas>
+
+	</body>
+	<script>
+		var psiTurkIsOn = 1;
+		var savingLocally = 0;
+		
+		if (psiTurkIsOn == true){
+		
+			//A function to save the data to the SQL table on the psiturk server.  This gets called at the end of the file.
+			function save_data(data_table,data){
+				jsPsych.data.addProperties({stimulus: '', subject: psiturk.taskdata.get('workerId')});
+					$.ajax({
+						type:'post',
+							cache: false,
+							url: 'https://serverName.psych.ucla.edu/~username/sivaColorExperiment/templates/savedata.php',
+									//Need to point this at the savedata.php in your own directory.  Why didn't this work locally???
+									data: {
+								table: data_table,
+									json: JSON.stringify(data),
+									//opt_data: {key: value}
+								},
+									success: function(output) { console.log(output); } // write the result to javascript console
+					});
+			}
+		}
+		
+		var filename = "SivaTestResults.csv";
+
+		 /* load psiturk! */
+		if (psiTurkIsOn == true){
+			var psiturk = new PsiTurk(uniqueId, adServerLoc, mode);
+		}
+		
+		<!-- ---------------------------------- -->
+		//Canvas Parameters
+		var canvasWidth = window.innerWidth-50;
+		var canvasHeight = window.innerHeight-50;
+		var canvasWidthCenter = canvasWidth/2;
+		var canvasHeightCenter = canvasHeight/2;
+
+
+		//Initialize the canvas
+		var canvas = document.getElementById("cueCanvas");
+		var cueContext = cueCanvas.getContext("2d");
+		cueContext.canvas.width = canvasWidth;
+		cueContext.canvas.height = canvasHeight;
+
+		//Stimuli block parameters
+		var angleForPeriphery = 10; //In degrees
+		var stimRectWidth = 50;
+		var stimRectHeight = 50;
+		var gapBetweenStim = 0; //This will change based on the question below.
+		
+		//Question to ask for distance from subject's eyes to screen
+		var distanceFromScreen = 0;
+		while (distanceFromScreen <5 || distanceFromScreen >30){
+			distanceFromScreen = prompt("How far are you from the screen? \nPlease answer in inches. \n(Make sure that your eyes are at a distance of 10 to 30 inches from the screen.)");
+		}
+		
+		alert("\n***IMPORTANT*** \n\n\nPlease wait while this page loads. \n\nThis may take up to 1 minute.  In the meantime you will see a blank screen but DO NOT close the window.\n\nClick \"Ok\" to allow the page to continue loading.\n\n");
+		/*
+		cueContext.fillStyle = "red";
+		cueContext.font = "30px Arial";
+		cueContext.textAlign = "center";
+		cueContext.fillText("Please wait while the page loads. This may take up to a minute.", canvasWidth/2, canvasHeight/2);
+		//alert("Message loaded at width: " + canvasWidth/2 + ", height: " + canvasHeight/2);
+		var waitScreenURL = cueCanvas.toDataURL();
+		cueContext.clearRect(0, 0, canvas.width, canvas.height);
+			
+		var waitScreenObject = {
+			type: 'single-stim',
+			stimuli: waitScreenURL
+		};
+		
+		waitScreenTimeline = [];
+		waitScreenTimeline.push(waitScreenObject);
+		
+		jsPsych.init({
+			timeline: waitScreenTimeline
+		});
+		
+		*/
+		
+		//================================EXPERIMENTAL dpi calculator====================================
+		//--BEGIN--
+		var hashRegex = /^#(\d+)[x×](\d+)(@(\d*\.?\d+)["″])?|(\d*\.?\d+)["″]$/;
+		var dppx = window.devicePixelRatio;
+		//alert("dppx is: " + dppx);	
+		
+		//--END--
+		
+		//Calculating the placement of the squares
+		//y here is the distance between the center of the center cloud and the center of the periphery cloud
+		//5 degrees is converted to radians to be used with Math.tan() function
+		var y = distanceFromScreen * Math.tan(angleForPeriphery * Math.PI / 180);
+		//alert("y is " + y);
+		//1 inch  = 96 px, or 1cm = 37.8px
+		//convert y to pixels
+		y*=138;
+		//calculate new gap with the new y in pixels
+		gapBetweenStim = y-stimRectWidth;
+		
+
+		//Starting points of stimuli rectagles (top-left corner coordinates)
+		//Left stimuli
+		var xCoordLeftStim = canvasWidthCenter-(stimRectWidth/2)-gapBetweenStim-stimRectWidth;
+		var yCoordLeftStim = canvasHeightCenter-(stimRectHeight/2);
+		//Center stimuli
+		var xCoordCenterStim = canvasWidthCenter-(stimRectWidth/2);
+		var yCoordCenterStim = canvasHeightCenter-(stimRectHeight/2);
+		//Right stimuli
+		var xCoordRightStim = canvasWidthCenter+(stimRectWidth/2)+gapBetweenStim;
+		var yCoordRightStim = canvasHeightCenter-(stimRectHeight/2);
+
+		//Stimuli parameters
+		var numberOfCirclesCenterCondition1 = 30;
+		var numberOfCirclesPeripheryCondition1 = 30;
+
+		var radiusOfCircle = 5;
+		var overlapFactor = 0.7; //0 to 1, where 1 is no overlap at all, and 0 is purely random
+		var counterLimit = 1000;
+		
+		<!-- ---------------------------------- -->
+		//COLOR PARAMETERS
+		var centerSaturation = 0.50;
+		var periSatCondition30 = 0.30; 
+		var periSatCondition40 = 0.40; 
+		var periSatCondition50 = 0.50; 
+		var periSatCondition60 = 0.60; 
+		var periSatCondition70 = 0.70; 
+		
+		var theObjectsValue = 1.0;
+		
+		//Unnecessary unless we change values per trial
+		//var valueLowerBound = 0.3;
+		//var valueUpperBound = 1.0;
+		
+		<!-- ---------------------------------- -->
+
+		//Trial Parameters
+		//(Per condition)
+		var numberOfTrials = 40;
+
+		//Time between the trials (in ms)
+		var minPostTrialTime = 0;
+		var maxPostTrialTime = 0;
+		var fixationCrossTime = 500;
+		var gapBetweenStimuliAndQuestion = 500;
+		var stimuliPresentationTime = 100;
+		
+		//Key parameters
+		var peripheryKey = 'P';
+		var centerKey = 'C';
+
+		<!-- -----Generate the HTML content---- -->
+		
+		
+		//function to create the Question on which is more colorful.
+		function question1() {
+			cueContext.font = "bold 24px sans-serif";
+			cueContext.textAlign = "center";
+			cueContext.textBaseline = "middle";
+			cueContext.fillStyle = "black";
+			cueContext.fillText("Which cloud was more colorful?", canvasWidth/2, canvasHeight/2 + 150);
+			cueContext.fillText("Press " + centerKey + " if the center was more colorful.", canvasWidth/2, canvasHeight/2 + 200);
+			cueContext.fillText("Press " + peripheryKey + " if the sides were more colorful", canvasWidth/2, canvasHeight/2 + 250);
+			var question1 = cueCanvas.toDataURL();
+			cueContext.clearRect(0, 0, canvas.width, canvas.height);
+			return question1;		
+		}
+		var question1 = question1();
+		
+		//function to create the fixation cross
+		function fixation_cross(){
+			cueContext.font = "bold 24px sans-serif";
+				cueContext.textAlign = "center";
+				cueContext.textBaseline = "middle";
+				cueContext.fillStyle = "black";
+				cueContext.fillText("+", canvasWidth/2, canvasHeight/2 + 0);
+				var fixation_cross = cueCanvas.toDataURL();
+				cueContext.clearRect(0, 0, canvas.width, canvas.height);
+				return fixation_cross;
+		}
+		var fixation_cross = fixation_cross();
+		
+		function thankYou() {
+			cueContext.font = "bold 24px sans-serif";
+			cueContext.textAlign = "center";
+			cueContext.textBaseline = "middle";
+			cueContext.fillStyle = "black";
+			cueContext.fillText("The experiment has ended.", canvasWidth/2, canvasHeight/2 - 40);
+			cueContext.fillText("Thank you for participating in our experiment.", canvasWidth/2, canvasHeight/2 + 0);
+			cueContext.fillText("Press the spacebar to officially end the experiment.", canvasWidth/2, canvasHeight/2 + 40);
+			var thankYou = cueCanvas.toDataURL();
+			cueContext.clearRect(0, 0, canvas.width, canvas.height);
+			return thankYou;		
+		}
+		var thankYou = thankYou();
+		
+		//Function to draw canvas. Called by the stimuli objects
+		function drawCanvas(centerNum, peripheryNum, value, centerSat, periSat){
+			//console.log("drawCanvas called. centerNum: " + centerNum + ", peripheryNum: " + peripheryNum + ", value: " + value + ", centerSat: " + centerSat + ", periSat: " + periSat);
+			drawRect(centerNum, peripheryNum, value, centerSat, periSat);
+
+
+			var canvasTextURL = cueCanvas.toDataURL();
+			cueContext.clearRect(0,0,canvas.width, canvas.height);
+			return canvasTextURL;
+		}
+
+		//Draws the 3 rectangles. Called by drawCanvas function above.
+		function drawRect(centerNum, peripheryNum, value, centerSat, periSat){
+			//console.log("drawRectcalled. centerNum: " + centerNum + ", peripheryNum: " + peripheryNum + ", value: " + value + ", centerSat: " + centerSat + ", periSat: " + periSat);
+			//Create an array of xCoordnates and yCoordinates that do not overlap
+			var centerArraysXY = createCoordinates(centerNum);
+			//Split the arrays up to x and y coords
+			var xCoordCenterArray = centerArraysXY[0];
+			var yCoordCenterArray = centerArraysXY[1];
+
+			//Adjust for the location on the screen
+			//Center
+			xCoordCenterArray = addValueToArray(xCoordCenterArray,xCoordCenterStim);
+			yCoordCenterArray = addValueToArray(yCoordCenterArray,yCoordCenterStim);
+
+
+			//Periphery
+			var leftArraysXY = createCoordinates(peripheryNum);
+			var rightArraysXY = createCoordinates(peripheryNum);
+
+
+			//Left
+			var xCoordLeftArray = leftArraysXY[0];
+			var yCoordLeftArray = leftArraysXY[1];
+
+			//Right
+			var xCoordRightArray = rightArraysXY[0];
+			var yCoordRightArray = rightArraysXY[1];
+
+			//Left adjustment
+			xCoordLeftArray = addValueToArray(xCoordLeftArray,xCoordLeftStim);
+			yCoordLeftArray = addValueToArray(yCoordLeftArray,yCoordLeftStim);
+
+
+			//Right adjustment
+			xCoordRightArray = addValueToArray(xCoordRightArray,xCoordRightStim);
+			yCoordRightArray = addValueToArray(yCoordRightArray,yCoordRightStim);
+
+
+			//FILLING IN THE CANVAS
+
+			//For the center rectangle
+			for (var i = 0; i<centerNum; ++i){
+				var xCoordCircle = xCoordCenterArray[i];
+				var yCoordCircle = yCoordCenterArray[i];
+
+				cueContext.beginPath();
+				cueContext.arc(xCoordCircle,yCoordCircle,radiusOfCircle,0,2*Math.PI);
+				cueContext.fillStyle = generateColor(Math.random()*360,centerSat,value);
+				cueContext.fill();
+			}
+
+			//For the left and right rectangles
+			for (var i = 0; i<peripheryNum; ++i){
+
+				//Left
+				var xCoordCircle = xCoordLeftArray[i];
+				var yCoordCircle = yCoordLeftArray[i];
+
+
+				cueContext.beginPath();
+				cueContext.arc(xCoordCircle,yCoordCircle,radiusOfCircle,0,2*Math.PI);
+				cueContext.fillStyle = generateColor(Math.random()*360,periSat,value);
+				cueContext.fill();
+
+				//Right
+				var xCoordCircle = xCoordRightArray[i];
+				var yCoordCircle = yCoordRightArray[i];
+
+				cueContext.beginPath();
+				cueContext.arc(xCoordCircle,yCoordCircle,radiusOfCircle,0,2*Math.PI);
+				cueContext.fillStyle = generateColor(Math.random()*360,periSat,value);
+				cueContext.fill();
+			}
+
+		}
+
+
+		//Create an array of xCoordnates and yCoordinates that do not overlap
+		function createCoordinates(num){
+			var xCoordArray = [];
+			var yCoordArray = [];
+
+			//push the first coordinate into the array
+			xCoordArray.push(Math.floor(Math.random()*stimRectWidth));
+			yCoordArray.push(Math.floor(Math.random()*stimRectHeight));
+
+			//One iteration for each addition
+			for (var i = 1; i<num; ++i){
+				xCoordCurrent = Math.floor(Math.random()*stimRectWidth);
+				yCoordCurrent = Math.floor(Math.random()*stimRectHeight);
+
+				//One iteration for each existing value (to check if it satisfies the condition)
+				for (var j = 0; j < xCoordArray.length; ++j){
+
+					//Counter to alert for improbable case where the system iterates too many times and cannot find a solution
+					var counter = 0;
+
+					//While they are too close together, generate another number.
+					while( (Math.abs(xCoordArray[j] - xCoordCurrent)<(radiusOfCircle*2*overlapFactor)) && (Math.abs(yCoordArray[j] - yCoordCurrent)<(radiusOfCircle*2*overlapFactor)) ){
+						xCoordCurrent = Math.floor(Math.random()*stimRectWidth);
+						yCoordCurrent = Math.floor(Math.random()*stimRectHeight);
+
+						++counter;
+						//console.log("counter: " + counter);
+						//console.log("Iteration number i: " + i);
+
+						//reset j so that it compares with the array starting from the beginning
+						j = 0;
+
+						if (counter > counterLimit){
+							alert("Loop to find coordinate iterated over 1000 times. Suggest changing parameters to make dots fit into the rectangles.");
+						}
+					}
+				}
+
+				//If the points pass the test, then push it into the array
+				xCoordArray.push(xCoordCurrent);
+				yCoordArray.push(yCoordCurrent);
+			}
+
+		//returns an array of 2 arrays
+		return [xCoordArray,yCoordArray];
+		}
+
+		//Function to add value to every element in the array (same as forEach, but by reference)
+		function addValueToArray(array,value){
+			var newArray = [];
+			for( var i = 0; i < array.length; ++i){
+				newValue = array[i]+value;
+				newArray.push(newValue);
+			}
+			return newArray;
+		}
+		
+		/* [Delete below once the actual hsv color generator is working]
+		//Generates the color to be filled into the circle
+		function generateColor(){
+			//alert("generateColor called!");
+			var r = Math.floor(Math.random()*255);
+			var g = Math.floor(Math.random()*255);
+			var b = Math.floor(Math.random()*255);
+			var colorString = "rgba(" + r + "," + g + "," + b + ",1)";
+			return colorString;
+		}
+		//*/
+		
+		function generateColor(h,s,v){
+			//console.log("GenerateColor called. h: " + h + ", s: " + s + ", v: " + v);
+		
+			var c = v*s;
+			var x = c*(1-( Math.abs(((h/60)%2)-1) ));
+			var m = v-c;
+			
+			//R',G', and B' are intermediate values used to calculate the actual RGB
+			var rPrime = 0;
+			var gPrime = 0;
+			var bPrime = 0;
+			
+			//R',G', and B' are dependent on hue
+			if (0<=h && h<60){
+				rPrime = c;
+				gPrime = x;
+				bPrime = 0;
+			}
+			else if (60<=h && h<120){
+				rPrime = x;
+				gPrime = c;
+				bPrime = 0;
+			}
+			else if (120<=h && h<180){
+				rPrime = 0;
+				gPrime = c;
+				bPrime = x;
+			}
+			else if (180<=h && h<240){
+				rPrime = 0;
+				gPrime = x;
+				bPrime = c;
+			}
+			else if (240<=h && h<300){
+				rPrime = x;
+				gPrime = 0;
+				bPrime = c;
+			}
+			else if (300<=h && h<360){
+				rPrime = c;
+				gPrime = 0;
+				bPrime = x;
+			}
+			else{
+				alert("Error: colorGenerator(): Hue is out of range!");
+			}
+			
+			var r = Math.floor((rPrime+m)*255);
+			var g = Math.floor((gPrime+m)*255);
+			var b = Math.floor((bPrime+m)*255);
+			
+			var colorString = "rgba(" + r + ", " + g + ", " + b + ", 1)";
+			//console.log(colorString);
+			return colorString;
+			
+		}
+
+		<!-- ---------------------------------- -->
+		
+		//Make an array of stimuli objects
+		var condition1 = [];
+		for (var i = 0; i < numberOfTrials; ++i){
+			//var theObjectsValue = Math.random()*(valueUpperBound-valueLowerBound)+valueLowerBound;
+			var stimuliObject = {				
+				timeline: [
+					{stimulus: fixation_cross, timing_response: fixationCrossTime},
+					{stimulus: drawCanvas(numberOfCirclesCenterCondition1,numberOfCirclesPeripheryCondition1, theObjectsValue, centerSaturation, periSatCondition30), timing_response: stimuliPresentationTime, timing_post_trial: gapBetweenStimuliAndQuestion},
+					{stimulus: question1, choices: [centerKey, peripheryKey]}],
+				data:{
+					value: theObjectsValue,
+					centerSat: centerSaturation,
+					periSat: periSatCondition30
+				}
+			};
+			condition1.push(stimuliObject);
+		}
+
+		var condition2 = [];
+		for (var i = 0; i < numberOfTrials; ++i){
+			//var theObjectsValue = Math.random()*(valueUpperBound-valueLowerBound)+valueLowerBound;
+			var stimuliObject = {				
+				timeline: [
+					{stimulus: fixation_cross, timing_response: fixationCrossTime},
+					{stimulus: drawCanvas(numberOfCirclesCenterCondition1,numberOfCirclesPeripheryCondition1, theObjectsValue, centerSaturation, periSatCondition40), timing_response: stimuliPresentationTime, timing_post_trial: gapBetweenStimuliAndQuestion},
+					{stimulus: question1, choices: [centerKey, peripheryKey]}],
+				data:{
+					value: theObjectsValue,
+					centerSat: centerSaturation,
+					periSat: periSatCondition40
+					}
+			};
+			condition2.push(stimuliObject);
+		}
+		
+		var condition3 = [];
+		for (var i = 0; i < numberOfTrials; ++i){
+			//var theObjectsValue = Math.random()*(valueUpperBound-valueLowerBound)+valueLowerBound;
+			var stimuliObject = {				
+				timeline: [
+					{stimulus: fixation_cross, timing_response: fixationCrossTime},
+					{stimulus: drawCanvas(numberOfCirclesCenterCondition1,numberOfCirclesPeripheryCondition1, theObjectsValue, centerSaturation, periSatCondition50), timing_response: stimuliPresentationTime, timing_post_trial: gapBetweenStimuliAndQuestion},
+					{stimulus: question1, choices: [centerKey, peripheryKey]}],
+				data:{
+					value: theObjectsValue,
+					centerSat: centerSaturation,
+					periSat: periSatCondition50
+					}
+			};
+			condition3.push(stimuliObject);
+		}
+		
+		var condition4 = [];
+		for (var i = 0; i < numberOfTrials; ++i){
+			//var theObjectsValue = Math.random()*(valueUpperBound-valueLowerBound)+valueLowerBound;
+			var stimuliObject = {				
+				timeline: [
+					{stimulus: fixation_cross, timing_response: fixationCrossTime},
+					{stimulus: drawCanvas(numberOfCirclesCenterCondition1,numberOfCirclesPeripheryCondition1, theObjectsValue, centerSaturation, periSatCondition60), timing_response: stimuliPresentationTime, timing_post_trial: gapBetweenStimuliAndQuestion},
+					{stimulus: question1, choices: [centerKey, peripheryKey]}],
+				data:{
+					value: theObjectsValue,
+					centerSat: centerSaturation,
+					periSat: periSatCondition60
+					}
+			};
+			condition4.push(stimuliObject);
+		}
+		
+		var condition5 = [];
+		for (var i = 0; i < numberOfTrials; ++i){
+			//var theObjectsValue = Math.random()*(valueUpperBound-valueLowerBound)+valueLowerBound;
+			var stimuliObject = {				
+				timeline: [
+					{stimulus: fixation_cross, timing_response: fixationCrossTime},
+					{stimulus: drawCanvas(numberOfCirclesCenterCondition1,numberOfCirclesPeripheryCondition1, theObjectsValue, centerSaturation, periSatCondition70), timing_response: stimuliPresentationTime, timing_post_trial: gapBetweenStimuliAndQuestion},
+					{stimulus: question1, choices: [centerKey, peripheryKey]}],
+				data:{
+					value: theObjectsValue,
+					centerSat: centerSaturation,
+					periSat: periSatCondition70
+					}
+			};
+			condition5.push(stimuliObject);
+		}
+		
+		//Push all the conditions into the allConditions array
+		var allConditions = condition1.concat(condition2,condition3,condition4,condition5);
+		
+		//console.log(allConditions);
+		
+		
+		//Randomize all the conditions
+		var randomizedIntermediateTrialArray = jsPsych.randomization.repeat(allConditions, 1);
+		
+		var randomizedTrialArray  = [];
+		
+		var arrayLength = randomizedIntermediateTrialArray.length;
+		for (var i = 0; i < arrayLength; i++){
+			randomizedTrialArray.push(randomizedIntermediateTrialArray[i]);
+		}
+		
+		//console.log(randomizedTrialArray);
+
+		<!-- ---------------------------------- -->
+		var instructions_block = {
+			type: 'single-stim',
+			choices: [32],
+			timeline: [
+				{stimulus: '../static/images/Instructions1.png', timing_post_trial: 0},
+				{stimulus: '../static/images/Instructions2.png', timing_post_trial: 0},
+				{stimulus: '../static/images/Instructions3.png', timing_post_trial: 0},
+				{stimulus: '../static/images/Instructions4.png', timing_post_trial: 0},
+				{stimulus: '../static/images/Instructions5.png', timing_post_trial: 0},
+				
+			]
+		};
+		
+		var thankYou_block = {
+			type: 'single-stim',
+			choices: [32],
+			timeline: [
+				{stimulus: thankYou}
+			]
+		};
+		
+		//Commented out because probably not needed. Can delete if unnecessary.
+		/* 
+		var welcome_block = {
+			type: 'text',
+			text: 'This is the test for single-stim plugin with canvas'
+		};
+
+
+
+		var instructions_block = {
+			type: "text",
+			text: "<p> These are the instructions </p>" +
+			" <p> Press the spacebar if the periphery has more colors than the center." +
+			" Do nothing otherwise. </p>",
+			timing_post_trial: 100
+		};
+		
+		var screenQuestion_block = {
+			type: "survey-text",
+			questions: ["What is the distance from the screen to your eyes? (in inches)"],
+			rows: 1,
+			columns: 2,
+			on_finish: function(){
+			
+			}
+		}
+		*/
+		//How much time between the trials
+		//In a function so that it can be used again and again
+		var post_trial_gap = function(){
+			return Math.floor(Math.random() *(maxPostTrialTime-minPostTrialTime)) + minPostTrialTime;
+		}
+		
+		//Declare counter variables
+		var counter30 = 0;
+		var counter40 = 0;
+		var counter50 = 0;
+		var counter60 = 0;
+		var counter70 = 0;
+
+		//test-block object
+		var test_block = {
+			type: 'single-stim',
+			
+			//time after the trial before the next trial starts
+			timing_post_trial: post_trial_gap,
+			
+			//After each trial has finished, check what portion did the subject choose peri>center and in what condition
+			//Increment the counter in the appropriate condition
+			on_finish: function(data){
+				if(data.periSat == periSatCondition30 && data.key_press == peripheryKey.charCodeAt(0)){
+					counter30++;
+					alert("counter 30++ called");
+				}
+				else if (data.periSat == periSatCondition40 && data.key_press == peripheryKey.charCodeAt(0)){
+					counter40++;
+				}
+				else if (data.periSat == periSatCondition50 && data.key_press == peripheryKey.charCodeAt(0)){
+					counter50++;
+				}
+				else if (data.periSat == periSatCondition60 && data.key_press == peripheryKey.charCodeAt(0)){
+					counter60++;
+				}
+				else if (data.periSat == periSatCondition70 && data.key_press == peripheryKey.charCodeAt(0)){
+					counter70++;
+				}
+				else{
+					//console.log("no key_press, probably.");
+				}
+			},
+			//* [Delete if unneeded for reference]
+			on_finish: function(data){
+				var hasData = true;
+				
+				//record if trial was a response trial
+				//not presponse if key_press is spacebar or no response
+				if (data.key_press == '32' || data.key_press == -1){
+					hasData = false;
+				}
+				//Add data to the data object on whether it was a response trial
+				jsPsych.data.addDataToLastTrial({isResponseTrial: hasData});
+			
+			},
+			//*/
+			//timeline for object is the randomized array of trials
+			//timeline: all_trials
+			timeline: randomizedTrialArray
+		};
+
+		//This function counts the final score at the end
+		//This function returns an object with the properties and values
+		function getSubjectData(){
+
+			var trials = jsPsych.data.getTrialsOfType('single-stim');
+
+			var sum_rt = 0;
+			var correct_trial_count = 0;
+			var correct_rt_count = 0;
+			for (var i = 0; i < trials.length; i++){
+				if (trials[i].correct == true) {
+					correct_trial_count++;
+					if(trials[i].rt >-1){
+						sum_rt += trials[i].rt;
+						correct_rt_count++;
+					}
+				}
+			}
+			//An object is returned
+			return{
+				rt: Math.floor(sum_rt / correct_rt_count),
+				accuracy: Math.floor(correct_trial_count / trials.length * 100)
+			}
+		}
+
+		//This is a text block
+		var debrief_block = {
+			type: "text",
+			//Seems to be an inline function
+			text: function(){
+				
+				var percent30 = counter30/numberOfTrials;
+				var percent40 = counter40/numberOfTrials;
+				var percent50 = counter50/numberOfTrials;
+				var percent60 = counter60/numberOfTrials;
+				var percent70 = counter70/numberOfTrials;
+				
+				return "<p> Percent Peri>Center for Condition30: " + percent30*100 + "%. </p>" +
+					"<p> Percent Peri>Center for Condition40: " + percent40*100 + "%. </p>" +
+					"<p> Percent Peri>Center for Condition50: " + percent50*100 + "%. </p>" +
+					"<p> Percent Peri>Center for Condition60: " + percent60*100 + "%. </p>" +
+					"<p> Percent Peri>Center for Condition70: " + percent70*100 + "%. </p>" ;
+				
+			}			
+				/*function(){
+				var subject_data = getSubjectData();
+				return "<p> You responded correctly on " + subject_data.accuracy +
+				"% of the trials. </p> <p> Your average response time was <strong>" +
+				subject_data.rt + "ms </strong>. Press any key to complete the experiment"
+				+ ". Thank you! </p>";
+			}*/
+		};
+
+		//Push into the timeline array
+		var timeline = [];
+		//timeline.push(welcome_block); <!-- This is push and not pushback -->
+		timeline.push(instructions_block);
+		//Might not be necessary anymore if we ask the screen question with a prompt from the browser
+		//timeline.push(screenQuestion_block);
+		timeline.push(test_block);
+		//timeline.push(debrief_block);
+		timeline.push(thankYou_block);
+		
+		//De-Initialize the canvas
+		var canvas = document.getElementById("cueCanvas");
+		var cueContext = cueCanvas.getContext("2d");
+		cueContext.canvas.width = 0;
+		cueContext.canvas.height = 0;
+		
+		//This is where the thing actually plays
+		jsPsych.init({
+			timeline: timeline,
+			on_trial_finish: function() {
+				if (psiTurkIsOn == true){
+				
+					//SivaExpt1 is the name of the table
+					save_data('SivaExpt1', [jsPsych.data.getLastTrialData()]);
+				 
+					//console.log(jsPsych.data.getLastTrialData());
+				 }
+			},
+			on_finish: function(){
+				if (savingLocally == true){
+					jsPsych.data.localSave(filename, 'csv');
+				}
+				jsPsych.data.displayData();
+				psiturk.saveData({
+			       	 	success: function() { psiturk.completeHIT(); }
+			   	});
+			}
+		});
+
+	</script>
+</html>
